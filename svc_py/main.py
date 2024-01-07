@@ -1,19 +1,12 @@
 from typing import Annotated
-
-import redis
-import numpy as np
 from fastapi import FastAPI, Path
 
-import consts
-from interface import RedisIndex
+from interface import MilvusIndex
 
 app = FastAPI()
-r = redis.Redis(host=consts.REDIS_HOST, port=consts.REDIS_PORT)
-index = RedisIndex(r, prefix=consts.KEY_PREFIX, name=consts.INDEX_NAME, dim=consts.DIM)
+index = MilvusIndex(collection_name="tracks")
 
 
-@app.get("/search/{item_id}")
-async def search(item_id: Annotated[int, Path(ge=0)]):
-    target = index.get(item_id)
-    r = [neighbour['id'].replace(consts.KEY_PREFIX, "") for neighbour in index.search(target)]
-    return {"neighbours": r}
+@app.get("/similar/{item_id}")
+async def similar(item_id: Annotated[int, Path(ge=0)]):
+    return {"neighbours": index.similar(id=item_id, limit=10)}
