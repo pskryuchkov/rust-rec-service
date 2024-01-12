@@ -1,0 +1,10 @@
+/data
+/milvus
+/svc/.DS_store
+/svc/py/.DS_store
+/svc/rust/.DS_store
+/svc/rust/target
+/.ipynb_checkpoints/
+
+.DS_store
+dump.rdb

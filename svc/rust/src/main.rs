@@ -24,6 +24,7 @@ struct TextResponse {
 #[derive(Serialize)]
 struct SimilarResponse {
     similar_ids: Vec<i64>,
+    message: String,
 }
 
 async fn not_found() -> Result<impl Responder> {
@@ -42,16 +43,11 @@ async fn vec_by_id(
         .await
 }
 
-async fn similar(target: i64) -> Result<Vec<i64>, Error> {
-    let client = Client::new(INDEX_HOST).await?;
-    let collection = client.get_collection(INDEX_NAME).await?;
+async fn similar(target: i64, client: &Client) -> Result<Vec<i64>, Error> {
+    let collection = &client.get_collection(INDEX_NAME).await?;
 
     let query_response = vec_by_id(target, &collection).await?;
-    let target_vec: Vec<f32> = query_response[INDEX_VEC_IDX]
-        .value
-        .clone()
-        .try_into()
-        .unwrap();
+    let target_vec: Vec<f32> = query_response[INDEX_VEC_IDX].value.clone().try_into()?;
 
     let mut option = SearchOption::default();
     option.add_param("nprobe", ParamValue!(INDEX_N_PROBE));
@@ -67,11 +63,7 @@ async fn similar(target: i64) -> Result<Vec<i64>, Error> {
         )
         .await?;
 
-    let finded_vec: Vec<i64> = result[0].field[INDEX_ID_IDX]
-        .value
-        .clone()
-        .try_into()
-        .unwrap();
+    let finded_vec: Vec<i64> = result[0].field[INDEX_ID_IDX].value.clone().try_into()?;
 
     match INDEX_EXCLUDE_FIRST {
         true => Ok(finded_vec[1..].to_vec()),
@@ -88,18 +80,30 @@ async fn healthcheck() -> Result<impl Responder> {
 }
 
 #[get("/similar/{id}")]
-async fn similar_handler(path: web::Path<i64>) -> Result<impl Responder> {
-    let finded_vec = similar(path.into_inner()).await.unwrap();
-    let resp = SimilarResponse {
-        similar_ids: finded_vec,
-    };
-    Ok((web::Json(resp), http::StatusCode::OK))
+async fn similar_handler(id: web::Path<i64>, client: web::Data<Client>) -> Result<impl Responder> {
+    let finded_vec = similar(id.into_inner(), client.get_ref()).await;
+    if finded_vec.is_ok() {
+        let resp = SimilarResponse {
+            similar_ids: finded_vec.unwrap(),
+            message: "Ok".to_string(),
+        };
+        Ok((web::Json(resp), http::StatusCode::OK))
+    } else {
+        let resp = SimilarResponse {
+            similar_ids: Vec::new(),
+            message: "Index error".to_string(),
+        };
+        Ok((web::Json(resp), http::StatusCode::INTERNAL_SERVER_ERROR))
+    }
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    HttpServer::new(|| {
+    let client: Client = Client::new(INDEX_HOST).await.unwrap();
+
+    HttpServer::new(move || {
         App::new()
+            .app_data(web::Data::new(client.clone()))
             .service(healthcheck)
             .service(similar_handler)
             .default_service(web::route().to(not_found))
